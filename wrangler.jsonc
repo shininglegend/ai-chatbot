@@ -1,0 +1,41 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ai-chatbot",
+  "main": "src/server.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Reachable only through the Access-protected custom domain.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "ai.titusmurphy.com", "custom_domain": true }],
+
+  // Model calls go through AI Gateway on this binding; no provider keys live in the Worker.
+  "ai": { "binding": "AI" },
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "UserHub", "class_name": "UserHub" },
+      { "name": "ChatAgent", "class_name": "ChatAgent" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserHub", "ChatAgent"] }],
+
+  // The Worker runs first on every request so nothing, not even the static app, is served without auth.
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+
+  // No request logs are kept for this Worker.
+  "observability": { "enabled": false },
+
+  "vars": {
+    // https://<team>.cloudflareaccess.com
+    "TEAM_DOMAIN": "https://titusmurphy.cloudflareaccess.com",
+    // Application Audience (AUD) tag of the Access application
+    "POLICY_AUD": "d6ce9060627b294c6ba77a04e1e150d61f6024875784f5497b3e6598fad73649",
+    "AI_GATEWAY_ID": "ai-chatbot"
+  }
+}

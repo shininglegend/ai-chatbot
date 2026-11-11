@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@source "../../node_modules/streamdown/dist/*.js";
+
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-white text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-100;
+  overscroll-behavior: none;
+}
