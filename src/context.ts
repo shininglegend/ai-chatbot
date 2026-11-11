@@ -13,9 +13,9 @@ export function placeFrom(cf: unknown): string | null {
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
-/** Explains the note that chat-agent.ts adds to earlier replies that used web search. */
+/** Explains the note that chat-agent.ts adds to earlier replies that used web search or Google Maps. */
 const SEARCH_NOTE_HINT =
-  "A bracketed note at the end of an earlier reply is an automatic record that the reply was based on a web search, with the pages it used. The search results themselves are not shown again. Never write such a note yourself.";
+  "A bracketed note at the end of an earlier reply is an automatic record that the reply was based on a web search or Google Maps lookup, with the sources it used. The results themselves are not shown again. Never write such a note yourself.";
 
 /** Explains the note that chat-agent.ts puts in place of an attachment from an earlier message. */
 const ATTACHMENT_NOTE_HINT =
@@ -26,7 +26,7 @@ const ATTACHMENT_NOTE_HINT =
  * (local time, time zone, place) and is only used when the chat includes user context.
  */
 export function systemPrompt(
-  context: { includeContext: boolean; profile: string; webSearch?: boolean; hiddenAttachments?: boolean },
+  context: { includeContext: boolean; profile: string; webSearch?: boolean; maps?: boolean; hiddenAttachments?: boolean },
   sent: unknown,
   now = new Date()
 ): string {
@@ -53,6 +53,11 @@ export function systemPrompt(
   if (context.webSearch) {
     lines.push(
       "You can search the web. Search when the answer depends on current, local or specific facts you cannot be sure of; answer directly when it does not. Each search costs the user money: use as few as the question needs, and search again only when the results so far leave a real gap."
+    );
+  }
+  if (context.maps) {
+    lines.push(
+      "You can look up places with Google Maps. Use it when the question is about specific places, businesses, opening hours, ratings, addresses or getting somewhere; answer directly when it is not. Each lookup can cost the user money, so use it only when the question needs it."
     );
   }
   return lines.join("\n");

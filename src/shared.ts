@@ -63,6 +63,8 @@ export type ChatOptions = {
   includeContext: boolean;
   /** Whether the model may search the web in this chat. */
   webSearch: boolean;
+  /** Whether the model may look up places on Google Maps in this chat. Gemini models only. */
+  maps: boolean;
 };
 
 /** What a new chat starts with; set in Settings. */
@@ -76,6 +78,7 @@ export const BUILT_IN_DEFAULTS: Defaults = {
   effort: null,
   includeContext: true,
   webSearch: false,
+  maps: false,
   ttl: DEFAULT_TTL_SECONDS
 };
 
@@ -107,8 +110,41 @@ export type HubState = {
 
 export const MAX_PROFILE_CHARS = 2000;
 
-/** `place` is an approximate "City, Region, Country" inferred by Cloudflare from the caller's IP. */
-export type Me = { email: string; key: string; place: string | null };
+/** A point on the map, in decimal degrees. */
+export type Coords = { latitude: number; longitude: number };
+
+/**
+ * `place` is an approximate "City, Region, Country" and `coords` the matching point, both
+ * inferred by Cloudflare from the caller's IP (city level, not a precise position).
+ */
+export type Me = { email: string; key: string; place: string | null; coords: Coords | null };
 
 /** Sent by the browser with each message in chats that include context. */
-export type SentContext = { localTime?: string; timeZone?: string; place?: string };
+export type SentContext = { localTime?: string; timeZone?: string; place?: string; coords?: Coords };
+
+/** Valid coordinates from an untrusted value, or null. */
+export function coordsFrom(value: unknown): Coords | null {
+  if (!value || typeof value !== "object") return null;
+  // Cloudflare gives these as strings; an empty or missing one must not become 0.
+  const number = (field: unknown) =>
+    typeof field === "number" || (typeof field === "string" && field.trim() !== "") ? Number(field) : NaN;
+  const latitude = number((value as Record<string, unknown>).latitude);
+  const longitude = number((value as Record<string, unknown>).longitude);
+  const ok = Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
+  return ok ? { latitude, longitude } : null;
+}
+
+/** Whether a source link points at Google Maps, which must be credited as such. */
+export function isMapsUrl(url: string): boolean {
+  try {
+    const { hostname, pathname } = new URL(url);
+    return (
+      hostname === "maps.google.com" ||
+      hostname === "maps.app.goo.gl" ||
+      (/^(www\.)?google\.[a-z.]+$/.test(hostname) && pathname.startsWith("/maps")) ||
+      (hostname === "goo.gl" && pathname.startsWith("/maps"))
+    );
+  } catch {
+    return false;
+  }
+}

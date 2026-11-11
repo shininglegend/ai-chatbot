@@ -2,7 +2,7 @@ import { routeAgentRequest } from "agents";
 import { authenticate, isSameOrigin } from "./auth";
 import { placeFrom } from "./context";
 import { listModels } from "./models";
-import type { Me } from "./shared";
+import { coordsFrom, type Me } from "./shared";
 
 export { ChatAgent } from "./chat-agent";
 export { UserHub } from "./user-hub";
@@ -45,7 +45,7 @@ export default {
     }
 
     if (url.pathname === "/api/me") {
-      return secured(Response.json({ ...user, place: placeFrom(request.cf) } satisfies Me));
+      return secured(Response.json({ ...user, place: placeFrom(request.cf), coords: coordsFrom(request.cf) } satisfies Me));
     }
 
     if (url.pathname === "/api/models") {

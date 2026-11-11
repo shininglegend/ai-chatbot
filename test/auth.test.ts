@@ -70,7 +70,7 @@ describe("Access token check", () => {
     const token = await sign();
     const viaHeader = await get("/api/me", { "Cf-Access-Jwt-Assertion": token });
     expect(viaHeader.status).toBe(200);
-    expect(await viaHeader.json()).toEqual({ email: EMAIL, key: await userKey(EMAIL), place: null });
+    expect(await viaHeader.json()).toEqual({ email: EMAIL, key: await userKey(EMAIL), place: null, coords: null });
     expect(viaHeader.headers.get("Cache-Control")).toBe("no-store");
 
     const viaCookie = await get("/api/me", { Cookie: `other=1; CF_Authorization=${token}` });

@@ -20,12 +20,17 @@ export function App({ me, modelList }: { me: Me; modelList: ModelList }) {
   // The approximate place comes from the network, so look again when the app is reopened
   // (a phone tab can stay open across a trip).
   const [place, setPlace] = useState(me.place);
+  const [coords, setCoords] = useState(me.coords);
   useEffect(() => {
     const refresh = () => {
       if (document.visibilityState !== "visible") return;
       fetch("/api/me")
         .then((res) => (res.ok ? (res.json() as Promise<Me>) : null))
-        .then((fresh) => fresh && setPlace(fresh.place))
+        .then((fresh) => {
+          if (!fresh) return;
+          setPlace(fresh.place);
+          setCoords(fresh.coords ?? null);
+        })
         .catch(() => {});
     };
     document.addEventListener("visibilitychange", refresh);
@@ -110,6 +115,7 @@ export function App({ me, modelList }: { me: Me; modelList: ModelList }) {
             hubKey={me.key}
             chat={selected}
             place={place}
+            coords={coords}
             modelList={modelList}
             onSetOptions={(patch) => setOptions(selected.id, patch)}
             onOpenSidebar={() => setSidebarOpen(true)}

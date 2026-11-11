@@ -120,6 +120,12 @@ export function Settings({ profile, defaults, modelList, place, onSave, onClose 
             Web search
             <input type="checkbox" checked={chosen.webSearch} onChange={(event) => set({ webSearch: event.target.checked })} />
           </label>
+          <label className="flex items-center justify-between gap-3">
+            <span>
+              <span translate="no">Google Maps</span> (Gemini only)
+            </span>
+            <input type="checkbox" checked={chosen.maps} onChange={(event) => set({ maps: event.target.checked })} />
+          </label>
           <p className="text-xs text-neutral-500">Chats you already have keep their own settings.</p>
         </fieldset>
 

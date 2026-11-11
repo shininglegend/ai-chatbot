@@ -22,13 +22,15 @@ import {
   type UIMessageChunk
 } from "ai";
 import {
+  coordsFrom,
   DOCUMENT_MEDIA_TYPES,
   IMAGE_MEDIA_TYPES,
   MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_DOCUMENT_DATA_URL_CHARS,
   MAX_IMAGE_DATA_URL_CHARS,
   type ModelInfo,
-  type ReplyCost
+  type ReplyCost,
+  type SentContext
 } from "./shared";
 
 type Link = { owner: string; id: string };
@@ -129,7 +131,7 @@ export function historyForModel(messages: UIMessage[], summaries: ReadonlyMap<st
       });
       const urls = [...new Set(message.parts.flatMap((part) => (part.type === "source-url" ? [part.url] : [])))];
       if (parts.length > 0 && urls.length > 0) {
-        parts.push({ type: "text", text: `[Web search was used for this reply. Sources: ${urls.slice(0, 10).join(" ")}]` });
+        parts.push({ type: "text", text: `[Search was used for this reply. Sources: ${urls.slice(0, 10).join(" ")}]` });
       }
       return { ...message, parts };
     })
@@ -283,9 +285,14 @@ export class ChatAgent extends AIChatAgent<Env> {
     // Attachments the model now only sees a summary of, which it may ask to read again.
     const newestId = this.messages.at(-1)?.id;
     const hidden = attachments.filter((a) => summaries.has(a.id) && a.messageId !== newestId);
+    // Google Maps grounding is a Gemini feature; the switch does nothing for other models.
+    const maps = context.maps && model.provider === "google";
+    // The approximate point from Cloudflare's IP lookup, only in chats that share the user's context.
+    const coords = context.includeContext ? coordsFrom((options?.body?.context as SentContext | undefined)?.coords) : null;
     const tools: ToolSet = {
-      // Search runs on the provider's side; the app only switches it on for chats that ask for it.
+      // Search and Maps run on the provider's side; the app only switches them on for chats that ask for them.
       ...(context.webSearch ? searchTools(model) : {}),
+      ...(maps ? { google_maps: google.tools.googleMaps({}) } : {}),
       ...(hidden.length > 0 ? readAttachmentTool(hidden) : {})
     };
 
@@ -298,9 +305,11 @@ export class ChatAgent extends AIChatAgent<Env> {
 
     const result = streamText({
       model: ai(vendorModel(model)),
-      system: systemPrompt({ ...context, hiddenAttachments: hidden.length > 0 }, options?.body?.context),
+      system: systemPrompt({ ...context, maps, hiddenAttachments: hidden.length > 0 }, options?.body?.context),
       messages: await convertToModelMessages(history),
       tools,
+      // Lets Maps answer "near me" questions; without it, results are not tied to a location.
+      ...(maps && coords ? { providerOptions: { google: { retrievalConfig: { latLng: coords } } } } : {}),
       reasoning: context.effort ?? "provider-default",
       // Room for the model to read an attachment again and then answer.
       stopWhen: stepCountIs(4),

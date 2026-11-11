@@ -6,7 +6,7 @@ import { assertAttachmentsAllowed, attachmentsOf, historyForModel } from "../src
 import { newestPerLine, summaryModel } from "../src/models";
 import { placeFrom, systemPrompt } from "../src/context";
 import { costOf } from "../src/pricing";
-import { DEFAULT_TTL_SECONDS, NEW_CHAT_TITLE } from "../src/shared";
+import { coordsFrom, DEFAULT_TTL_SECONDS, isMapsUrl, NEW_CHAT_TITLE } from "../src/shared";
 import type { UserHub } from "../src/user-hub";
 
 const HOUR = 60 * 60 * 1000;
@@ -213,7 +213,51 @@ describe("web search", () => {
     ] as UIMessage[];
     const kept = historyForModel(history);
     expect(kept.map((m) => m.parts.map((p) => p.type))).toEqual([["text", "file"], ["text", "text"]]);
-    expect(kept[1].parts.at(-1)).toMatchObject({ text: "[Web search was used for this reply. Sources: https://example.com]" });
+    expect(kept[1].parts.at(-1)).toMatchObject({ text: "[Search was used for this reply. Sources: https://example.com]" });
+  });
+});
+
+describe("Google Maps", () => {
+  it("is off for a new chat, follows the defaults, and is reported to the chat once switched on", async () => {
+    const hub = await hubFor("user-maps");
+    const id = await hub.createChat();
+    expect((await chatsOf(hub))[0].maps).toBe(false);
+    expect((await hub.touch(id)).maps).toBe(false);
+    await hub.setChatOptions(id, { maps: true });
+    expect((await chatsOf(hub))[0].maps).toBe(true);
+    expect((await hub.touch(id)).maps).toBe(true);
+
+    await hub.setDefaults({ maps: true });
+    const next = await hub.createChat();
+    expect((await hub.touch(next)).maps).toBe(true);
+
+    await runInDurableObject(hub, async (instance) => {
+      await expect(instance.setChatOptions(id, { maps: 1 as never })).rejects.toThrow("true or false");
+    });
+  });
+
+  it("tells the model about Maps only when it is on", () => {
+    expect(systemPrompt({ includeContext: false, profile: "" }, undefined)).not.toContain("Google Maps.");
+    expect(systemPrompt({ includeContext: false, profile: "", maps: true }, undefined)).toContain("You can look up places with Google Maps");
+  });
+
+  it("reads coordinates from Cloudflare's request data and rejects anything else", () => {
+    expect(coordsFrom({ latitude: "39.73915", longitude: "-104.98470" })).toEqual({ latitude: 39.73915, longitude: -104.9847 });
+    expect(coordsFrom({ latitude: 0, longitude: 0 })).toEqual({ latitude: 0, longitude: 0 });
+    expect(coordsFrom({ latitude: "", longitude: "" })).toBeNull();
+    expect(coordsFrom({ latitude: "91", longitude: "0" })).toBeNull();
+    expect(coordsFrom({ latitude: "x", longitude: "1" })).toBeNull();
+    expect(coordsFrom({ city: "Denver" })).toBeNull();
+    expect(coordsFrom(undefined)).toBeNull();
+  });
+
+  it("recognises Google Maps links so they can be credited", () => {
+    expect(isMapsUrl("https://maps.google.com/?cid=123")).toBe(true);
+    expect(isMapsUrl("https://www.google.com/maps/place/x")).toBe(true);
+    expect(isMapsUrl("https://maps.app.goo.gl/abc")).toBe(true);
+    expect(isMapsUrl("https://www.google.com/search?q=maps")).toBe(false);
+    expect(isMapsUrl("https://example.com/maps")).toBe(false);
+    expect(isMapsUrl("not a url")).toBe(false);
   });
 });
 

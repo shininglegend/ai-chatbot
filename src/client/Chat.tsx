@@ -6,8 +6,10 @@ import { Streamdown } from "streamdown";
 import {
   type ChatOptions,
   type ChatSummary,
+  type Coords,
   EFFORTS,
   type Effort,
+  isMapsUrl,
   MAX_ATTACHMENTS_PER_MESSAGE,
   type ModelList,
   type ReplyCost,
@@ -24,7 +26,7 @@ function costOfMessage(message: UIMessage): ReplyCost | null {
 }
 
 /** What the browser knows at the moment a message is sent. */
-function contextNow(place: string | null): SentContext {
+function contextNow(place: string | null, coords: Coords | null): SentContext {
   return {
     localTime: new Date().toLocaleString("en-US", {
       weekday: "long",
@@ -35,7 +37,8 @@ function contextNow(place: string | null): SentContext {
       minute: "2-digit"
     }),
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    ...(place ? { place } : {})
+    ...(place ? { place } : {}),
+    ...(coords ? { coords } : {})
   };
 }
 
@@ -44,6 +47,8 @@ type Props = {
   chat: ChatSummary;
   /** Approximate "City, Region, Country", or null when unknown. */
   place: string | null;
+  /** The point matching `place`, used for Google Maps lookups; null when unknown. */
+  coords: Coords | null;
   modelList: ModelList;
   onSetOptions: (patch: Partial<ChatOptions>) => void;
   onOpenSidebar: () => void;
@@ -55,6 +60,7 @@ export function Chat({
   hubKey,
   chat,
   place,
+  coords,
   modelList,
   onSetOptions,
   onOpenSidebar,
@@ -70,13 +76,15 @@ export function Chat({
   const modelId = modelList.models.find((model) => model.id === chat.modelId)?.id ?? modelList.defaultId;
   // Read at send time, so a change takes effect on the next message. The server applies the
   // same per-chat switch, so nothing here is used when context is off.
-  const contextRef = useRef({ include: chat.includeContext, place });
-  contextRef.current = { include: chat.includeContext, place };
+  const contextRef = useRef({ include: chat.includeContext, place, coords });
+  contextRef.current = { include: chat.includeContext, place, coords };
 
   const { messages, sendMessage, status, stop, error, clearError } = useAgentChat({
     agent,
-    body: () => (contextRef.current.include ? { context: contextNow(contextRef.current.place) } : {})
+    body: () =>
+      contextRef.current.include ? { context: contextNow(contextRef.current.place, contextRef.current.coords) } : {}
   });
+  const isGemini = modelList.models.find((model) => model.id === modelId)?.provider === "google";
   const busy = status === "submitted" || status === "streaming";
 
   const [text, setText] = useState("");
@@ -321,6 +329,15 @@ export function Chat({
                 />
                 Search
               </label>
+              {isGemini && (
+                <label
+                  className="flex items-center gap-1.5 text-sm whitespace-nowrap text-neutral-600 dark:text-neutral-300"
+                  title="Let the model look up places with Google Maps in this chat. Lookups are billed by Google. With Context ticked, your approximate location is sent too."
+                >
+                  <input type="checkbox" checked={chat.maps} onChange={(event) => onSetOptions({ maps: event.target.checked })} />
+                  <span translate="no">Maps</span>
+                </label>
+              )}
               <div className="flex-1" />
               {busy ? (
                 <button
@@ -363,7 +380,9 @@ function toolActivity(message: UIMessage | undefined): string | null {
   if (message.parts.some((part) => part.type === "text" && part.text.trim() !== "")) return null;
   const tools = message.parts.filter((part) => part.type.startsWith("tool-") || part.type === "dynamic-tool");
   if (tools.length === 0) return null;
-  return tools.at(-1)?.type === "tool-read_attachment" ? "Reading the attachment again…" : "Searching the web…";
+  const last = tools.at(-1)?.type;
+  if (last === "tool-read_attachment") return "Reading the attachment again…";
+  return last === "tool-google_maps" ? "Looking up places…" : "Searching the web…";
 }
 
 function hostOf(url: string): string {
@@ -422,7 +441,14 @@ function Message({ message, modelList }: { message: UIMessage; modelList: ModelL
                   <a href={url} target="_blank" rel="noreferrer noopener" className="underline">
                     {title}
                   </a>{" "}
-                  <span className="text-neutral-400">{hostOf(url)}</span>
+                  {isMapsUrl(url) ? (
+                    // Google requires Maps results to be credited exactly like this, untranslated.
+                    <span className="whitespace-nowrap text-neutral-400" translate="no">
+                      Google Maps
+                    </span>
+                  ) : (
+                    <span className="text-neutral-400">{hostOf(url)}</span>
+                  )}
                 </li>
               ))}
             </ol>

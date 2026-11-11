@@ -22,6 +22,7 @@ type ChatMeta = {
   // Absent on chats created before these settings existed; see optionsOf.
   includeContext?: boolean;
   webSearch?: boolean;
+  maps?: boolean;
   modelId?: string | null;
   effort?: ChatOptions["effort"];
 };
@@ -34,7 +35,8 @@ function optionsOf(meta: ChatMeta): ChatOptions {
     modelId: meta.modelId ?? null,
     effort: meta.effort ?? null,
     includeContext: meta.includeContext ?? true,
-    webSearch: meta.webSearch ?? false
+    webSearch: meta.webSearch ?? false,
+    maps: meta.maps ?? false
   };
 }
 
@@ -82,7 +84,7 @@ export class UserHub extends Agent<Env, HubState> {
       if (patch.effort !== null && !isEffort(patch.effort)) throw new Error("Unknown effort level");
       clean.effort = patch.effort;
     }
-    for (const key of ["includeContext", "webSearch"] as const) {
+    for (const key of ["includeContext", "webSearch", "maps"] as const) {
       if (!(key in patch)) continue;
       if (typeof patch[key] !== "boolean") throw new Error("Expected true or false");
       clean[key] = patch[key];
@@ -134,7 +136,7 @@ export class UserHub extends Agent<Env, HubState> {
     await this.sweep();
   }
 
-  /** Change one chat's model, effort, context or web search switch. */
+  /** Change one chat's model, effort, or context, web search or Maps switch. */
   @callable()
   async setChatOptions(id: string, patch: Partial<ChatOptions>): Promise<void> {
     const { ttl: _notHere, ...options } = await this.validated(patch);
