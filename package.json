@@ -11,6 +11,7 @@
     "types": "wrangler types"
   },
   "keywords": [],
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.102",
