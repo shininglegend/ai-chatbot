@@ -77,6 +77,22 @@ describe("self-deleting chats", () => {
     expect(await sweepSchedules(hub)).toHaveLength(1);
   });
 
+  it("restarts a chat's timer on request without renaming it", async () => {
+    const hub = await hubFor("user-restart");
+    const id = await hub.createChat(3600);
+    await runInDurableObject(hub, async (instance) => {
+      const entry = (await instance.chats.list()).find((e) => e.id === id)!;
+      await instance.chats.setMetadata(id, { ...entry.metadata!, lastActivity: Date.now() - HOUR + 60_000, expiresAt: Date.now() + 60_000 });
+    });
+
+    await hub.restartTimer(id);
+
+    const [chat] = await chatsOf(hub);
+    expect(chat.title).toBe(NEW_CHAT_TITLE);
+    expect(chat.expiresAt).toBeGreaterThan(Date.now() + HOUR - 5_000);
+    expect(await sweepSchedules(hub)).toHaveLength(1);
+  });
+
   it("keeps a chat with the timer set to Never", async () => {
     const hub = await hubFor("user-never");
     const id = await hub.createChat();

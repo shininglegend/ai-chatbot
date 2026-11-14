@@ -136,6 +136,16 @@ export class UserHub extends Agent<Env, HubState> {
     await this.sweep();
   }
 
+  /** Start a chat's countdown again from now, as if a message had just been sent. */
+  @callable()
+  async restartTimer(id: string): Promise<void> {
+    const meta = await this.meta(id);
+    if (!meta) return;
+    const now = Date.now();
+    await this.chats.setMetadata(id, { ...meta, lastActivity: now, expiresAt: expiryFor(now, meta.ttl) });
+    await this.sweep();
+  }
+
   /** Change one chat's model, effort, or context, web search or Maps switch. */
   @callable()
   async setChatOptions(id: string, patch: Partial<ChatOptions>): Promise<void> {

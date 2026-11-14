@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { type Defaults, EFFORTS, type Effort, MAX_PROFILE_CHARS, type ModelList, TTL_PRESETS } from "../shared";
+import { Modal } from "./Modal";
 
 type Props = {
   profile: string;
@@ -35,14 +36,15 @@ export function Settings({ profile, defaults, modelList, place, onSave, onClose 
     }
   };
 
+  const dirty = draft !== profile || JSON.stringify(chosen) !== JSON.stringify(defaults);
+  const canClose = () => !dirty || confirm("Discard your changes to Settings?");
+  const cancel = () => {
+    if (canClose()) onClose();
+  };
+
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-title"
-        className="flex max-h-full w-full max-w-lg flex-col gap-3 overflow-y-auto rounded-xl bg-white p-4 dark:bg-neutral-900"
-      >
+    <Modal onClose={onClose} canClose={canClose} aria-labelledby="settings-title" className="w-full max-w-lg rounded-xl bg-white dark:bg-neutral-900">
+      <div className="flex flex-col gap-3 p-4">
         <h2 id="settings-title" className="text-base font-medium">
           Settings
         </h2>
@@ -136,7 +138,7 @@ export function Settings({ profile, defaults, modelList, place, onSave, onClose 
         )}
 
         <div className="flex justify-end gap-2">
-          <button type="button" className="rounded-lg px-4 py-1.5 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={onClose}>
+          <button type="button" className="rounded-lg px-4 py-1.5 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={cancel}>
             Cancel
           </button>
           <button
@@ -149,6 +151,6 @@ export function Settings({ profile, defaults, modelList, place, onSave, onClose 
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

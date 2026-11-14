@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { ChatSummary, Me, Spend } from "../shared";
 import { formatUsd } from "./format";
 import { timeLeft, useNow } from "./time";
@@ -19,6 +20,23 @@ type Props = {
 
 export function Sidebar({ me, chats, selectedId, open, onClose, onSelect, onNew, onDelete, onDeleteAll, onOpenSettings, spend }: Props) {
   const now = useNow();
+  const newButton = useRef<HTMLButtonElement>(null);
+
+  // On a phone the list slides over the chat: move focus into it, close it on Esc, and put
+  // focus back where it was (the "Chats" button) when it closes.
+  useEffect(() => {
+    if (!open) return;
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    newButton.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (before?.isConnected) before.focus();
+    };
+  }, [open, onClose]);
 
   return (
     <>
@@ -37,6 +55,7 @@ export function Sidebar({ me, chats, selectedId, open, onClose, onSelect, onNew,
       >
         <div className="p-3">
           <button
+            ref={newButton}
             type="button"
             className="w-full rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white dark:bg-white dark:text-neutral-900"
             onClick={onNew}
