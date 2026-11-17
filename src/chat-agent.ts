@@ -256,14 +256,18 @@ export class ChatAgent extends AIChatAgent<Env> {
   }
 
   async onChatMessage(_onFinish: unknown, options?: OnChatMessageOptions) {
-    const { models, defaultId } = await listModels(this.env);
     const userMessages = this.messages.filter((m) => m.role === "user");
     let context: ChatContext;
+    let models: ModelInfo[];
+    let defaultId: string;
     try {
       // Check every message, not just the newest: the whole history is sent to the model.
       for (const message of this.messages) assertAttachmentsAllowed(message);
-      // Restart the self-delete timer; the first message also names the chat.
-      context = await this.touchHub(titleFrom(userMessages[0]));
+      // Restart the self-delete timer (the first message also names the chat) while the model
+      // list loads: on a fresh instance that list is a request to Anthropic, so do both at once.
+      const [list, hubContext] = await Promise.all([listModels(this.env), this.touchHub(titleFrom(userMessages[0]))]);
+      ({ models, defaultId } = list);
+      context = hubContext;
     } catch (error) {
       return errorResponse(error);
     }

@@ -2,6 +2,7 @@ import { useAgent } from "agents/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BUILT_IN_DEFAULTS, type ChatOptions, type HubState, type Me, type ModelList, NEW_CHAT_TITLE } from "../shared";
 import { Chat, type Draft } from "./Chat";
+import { checkSession, reloadToRenewSession } from "./session";
 import { Settings } from "./Settings";
 import { Sidebar } from "./Sidebar";
 
@@ -35,24 +36,36 @@ export function App({ me, modelList }: { me: Me; modelList: ModelList }) {
   }, []);
 
   // The approximate place comes from the network, so look again when the app is reopened
-  // (a phone tab can stay open across a trip).
+  // (a phone tab can stay open across a trip). The same check notices an expired sign-in.
   const [place, setPlace] = useState(me.place);
   const [coords, setCoords] = useState(me.coords);
-  useEffect(() => {
-    const refresh = () => {
-      if (document.visibilityState !== "visible") return;
-      fetch("/api/me")
-        .then((res) => (res.ok ? (res.json() as Promise<Me>) : null))
-        .then((fresh) => {
-          if (!fresh) return;
-          setPlace(fresh.place);
-          setCoords(fresh.coords ?? null);
-        })
-        .catch(() => {});
-    };
-    document.addEventListener("visibilitychange", refresh);
-    return () => document.removeEventListener("visibilitychange", refresh);
+  const recheck = useCallback(async () => {
+    const result = await checkSession();
+    if (result.status === "expired") reloadToRenewSession();
+    if (result.status !== "ok") return;
+    setPlace(result.me.place);
+    setCoords(result.me.coords ?? null);
   }, []);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void recheck();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [recheck]);
+
+  // While the connection is down, check now and then whether the sign-in ran out, which also
+  // stops the connection from coming back. A plain network outage just keeps waiting.
+  const hubConnected = hub.identified;
+  useEffect(() => {
+    if (hubConnected) return;
+    const first = setTimeout(() => void recheck(), 3_000);
+    const again = setInterval(() => void recheck(), 30_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(again);
+    };
+  }, [hubConnected, recheck]);
 
   const select = useCallback((id: string | null) => {
     setSelectedId(id);

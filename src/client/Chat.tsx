@@ -1,7 +1,7 @@
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useAgent } from "agents/react";
 import type { FileUIPart, UIMessage } from "ai";
-import { type ClipboardEvent, type DragEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type ClipboardEvent, type DragEvent, type KeyboardEvent, memo, useCallback, useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import {
   type ChatOptions,
@@ -112,12 +112,25 @@ export function Chat({
   const contextRef = useRef({ include: chat.includeContext, place, coords });
   contextRef.current = { include: chat.includeContext, place, coords };
 
-  const { messages, sendMessage, regenerate, status, stop, error, clearError, isServerStreaming, isRecovering } =
-    useAgentChat({
-      agent,
-      body: () =>
-        contextRef.current.include ? { context: contextNow(contextRef.current.place, contextRef.current.coords) } : {}
-    });
+  const {
+    messages,
+    setMessages,
+    sendMessage,
+    regenerate,
+    status,
+    stop,
+    error,
+    clearError,
+    isServerStreaming,
+    isRecovering
+  } = useAgentChat({
+    agent,
+    body: () =>
+      contextRef.current.include ? { context: contextNow(contextRef.current.place, contextRef.current.coords) } : {},
+    // The server's copy is the record. Every change goes up with a request (send, edit, retry),
+    // and setMessages is only used below to take the server's copy, which needs no echo back.
+    syncMessagesToServer: false
+  });
   const isGemini = modelList.models.find((model) => model.id === modelId)?.provider === "google";
   // Includes a reply still running on the server after a reload or reconnect.
   const busy = status === "submitted" || status === "streaming" || isServerStreaming || isRecovering;
@@ -192,6 +205,42 @@ export function Chat({
     return () => clearTimeout(timer);
   }, [connected]);
 
+  // A reply keeps running and is saved on the server when this page goes away (phone locked,
+  // tab in the background, network dropped). If it finished in the meantime there is nothing
+  // left to resume, so after a reconnect load the saved conversation and show it if it differs.
+  const latest = useRef({ messages, busy });
+  latest.current = { messages, busy };
+  const everConnected = useRef(false);
+  useEffect(() => {
+    if (!connected) return;
+    if (!everConnected.current) {
+      everConnected.current = true;
+      return;
+    }
+    let cancelled = false;
+    // Give an unfinished reply a moment to resume first; that path streams the rest in.
+    const timer = setTimeout(async () => {
+      if (latest.current.busy) return;
+      try {
+        const res = await fetch(`/agents/user-hub/${hubKey}/chats/${encodeURIComponent(chat.id)}/get-messages`, {
+          redirect: "manual"
+        });
+        if (!res.ok || cancelled || latest.current.busy) return;
+        const saved = (await res.json()) as UIMessage[];
+        if (!cancelled && !latest.current.busy && JSON.stringify(saved) !== JSON.stringify(latest.current.messages)) {
+          setMessages(saved);
+          clearError();
+        }
+      } catch {
+        // Offline again; the next reconnect tries again.
+      }
+    }, 1_000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [connected, hubKey, chat.id, setMessages, clearError]);
+
   // When the current wait started, for the elapsed-time hint.
   const [busySince, setBusySince] = useState<number | null>(null);
   useEffect(() => setBusySince(busy ? Date.now() : null), [busy]);
@@ -261,6 +310,12 @@ export function Chat({
     following.current = true;
     void regenerate();
   };
+
+  // Stable handlers, so a streaming reply does not re-render every earlier message.
+  const actions = useRef({ startEdit, retry });
+  actions.current = { startEdit, retry };
+  const onEditMessage = useCallback((message: UIMessage) => actions.current.startEdit(message), []);
+  const onRetryReply = useCallback(() => actions.current.retry(), []);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Escape" && (editing || busy)) {
@@ -401,8 +456,10 @@ export function Chat({
                 key={message.id}
                 message={message}
                 modelList={modelList}
-                onEdit={!busy && message.id === lastUserId && !editing ? () => startEdit(message) : undefined}
-                onRetry={!busy && message.id === lastId && message.role === "assistant" ? retry : undefined}
+                canEdit={!busy && message.id === lastUserId && !editing}
+                canRetry={!busy && message.id === lastId && message.role === "assistant"}
+                onEdit={onEditMessage}
+                onRetry={onRetryReply}
               />
             ))}
             <div role="status" aria-live="polite">
@@ -690,13 +747,19 @@ function CopyButton({ text }: { text: string }) {
 type MessageProps = {
   message: UIMessage;
   modelList: ModelList;
-  /** Set on the user's last message when it can be edited. */
-  onEdit?: () => void;
-  /** Set on the last reply when it can be written again. */
-  onRetry?: () => void;
+  /** True on the user's last message when it can be edited. */
+  canEdit: boolean;
+  /** True on the last reply when it can be written again. */
+  canRetry: boolean;
+  onEdit: (message: UIMessage) => void;
+  onRetry: () => void;
 };
 
-function Message({ message, modelList, onEdit, onRetry }: MessageProps) {
+/**
+ * Memoised: while a reply streams in, only the message that changed re-renders, instead of
+ * every earlier message re-parsing its Markdown on each update.
+ */
+const Message = memo(function Message({ message, modelList, canEdit, canRetry, onEdit, onRetry }: MessageProps) {
   const [zoomed, setZoomed] = useState<{ url: string; alt: string } | null>(null);
   const cost = costOfMessage(message);
   const isUser = message.role === "user";
@@ -768,9 +831,9 @@ function Message({ message, modelList, onEdit, onRetry }: MessageProps) {
         )}
       </div>
       {isUser
-        ? onEdit && (
+        ? canEdit && (
             <div className="mt-1 text-xs text-neutral-400">
-              <button type="button" className={actionClass} onClick={onEdit}>
+              <button type="button" className={actionClass} onClick={() => onEdit(message)}>
                 Edit
               </button>
             </div>
@@ -778,7 +841,7 @@ function Message({ message, modelList, onEdit, onRetry }: MessageProps) {
         : (text || cost) && (
             <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-neutral-400">
               {text && <CopyButton text={text} />}
-              {onRetry && (
+              {canRetry && (
                 <button type="button" className={actionClass} title="Write this reply again" onClick={onRetry}>
                   Retry
                 </button>
@@ -802,4 +865,4 @@ function Message({ message, modelList, onEdit, onRetry }: MessageProps) {
       )}
     </div>
   );
-}
+});
